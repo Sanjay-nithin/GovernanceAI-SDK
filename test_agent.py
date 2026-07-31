@@ -63,19 +63,26 @@ def main():
     if not os.path.exists(python_executable):
         python_executable = sys.executable
         
-    # Ensure test key exists in ClickHouse api_keys table by running a quick insertion script
+    # Ensure test key exists in Supabase Postgres api_keys table by running a quick insertion script
     # using the backend's environment.
     print("Preparing test database (inserting test API key)...")
     backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Governance/backend"))
     seed_script = f"""
 import sys
+import hashlib
 sys.path.insert(0, '{backend_path}')
-import clickhouse_connect, datetime
-from config import CLICKHOUSE_DB_HOST, CLICKHOUSE_DB_USER, CLICKHOUSE_DB_PASSWORD, CLICKHOUSE_DB_PORT, CLICKHOUSE_DB_SECURE, CLICKHOUSE_DB_DATABASE
-client = clickhouse_connect.get_client(host=CLICKHOUSE_DB_HOST, username=CLICKHOUSE_DB_USER, password=CLICKHOUSE_DB_PASSWORD, port=CLICKHOUSE_DB_PORT, secure=CLICKHOUSE_DB_SECURE, database=CLICKHOUSE_DB_DATABASE)
-exists = client.query("SELECT count(*) FROM api_keys WHERE api_key = '{test_key}'").result_rows[0][0]
-if not exists:
-    client.insert('api_keys', [('{test_key}', 'Test Runner', datetime.datetime.now(datetime.timezone.utc))], column_names=['api_key', 'owner', 'created_at'])
+from services.db import init_db, get_api_key_by_hash, create_api_key
+
+init_db()
+key_hash = hashlib.sha256(b'mock_key').hexdigest()
+existing = get_api_key_by_hash(key_hash)
+if not existing:
+    create_api_key(
+        user_id='00000000-0000-0000-0000-000000000000',
+        key_hash=key_hash,
+        key_preview='mock_key',
+        name='Test Suite Mock Key'
+    )
 """
     subprocess.run([python_executable, "-c", seed_script], cwd=backend_path, check=True)
     
