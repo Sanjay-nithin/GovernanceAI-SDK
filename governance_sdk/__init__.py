@@ -34,10 +34,13 @@ def init(
     """
     global _active_client
     
+    if not api_key:
+        raise ValueError("api_key is required to initialize the Governance SDK")
+        
     config = SDKConfig(
+        api_key=api_key,
         server_url=server_url,
         risk_check_url=risk_check_url,
-        api_key=api_key,
         project_name=project_name,
         enabled=enabled,
         batch_size=batch_size,

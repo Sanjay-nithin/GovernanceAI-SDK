@@ -259,45 +259,22 @@ def patch_crewai(client) -> None:
         return
         
     try:
-        from crewai.tools import BaseTool
-        
-        if hasattr(BaseTool, "run") and not getattr(BaseTool.run, "__wrapped__", None):
-            original_run = BaseTool.run
-            @functools.wraps(original_run)
-            def wrapper_run(self, *args, **kwargs):
-                tool_input = args[0] if len(args) > 0 else (kwargs.get("tool_input") or kwargs)
-                tool_name = getattr(self, "name", "unknown_tool")
-                tool_desc = getattr(self, "description", "")
-                
-                caller_info, context, start_time, start_iso = _prepare_execution_context(
-                    client, tool_name, tool_desc, tool_input
-                )
-                
-                decision, reason, risk_category, risk_score, was_authorized = _evaluate_risk_and_permission(
-                    client, tool_name, tool_desc, tool_input, context, caller_info, start_time, start_iso
-                )
-                
-                status = "success"
-                output = None
-                error_msg = None
-                
-                try:
-                    output = original_run(self, *args, **kwargs)
-                    return output
-                except Exception as e:
-                    status = "failed"
-                    error_msg = f"{type(e).__name__}: {str(e)}"
-                    raise
-                finally:
-                    _report_execution_result(
-                        client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
-                    )
+        patched_any = False
 
-            original_arun = getattr(BaseTool, "arun", None)
-            if original_arun and not getattr(original_arun, "__wrapped__", None):
-                @functools.wraps(original_arun)
-                async def wrapper_arun(self, *args, **kwargs):
-                    tool_input = args[0] if len(args) > 0 else (kwargs.get("tool_input") or kwargs)
+        # 1. Patch BaseTool from crewai.tools
+        try:
+            from crewai.tools import BaseTool
+            if hasattr(BaseTool, "run") and not getattr(BaseTool.run, "__wrapped__", None):
+                original_run = BaseTool.run
+                @functools.wraps(original_run)
+                def wrapper_run(self, *args, **kwargs):
+                    if len(args) == 1:
+                        tool_input = args[0]
+                    elif len(args) > 1:
+                        tool_input = list(args)
+                    else:
+                        tool_input = kwargs.get("tool_input") or kwargs
+
                     tool_name = getattr(self, "name", "unknown_tool")
                     tool_desc = getattr(self, "description", "")
                     
@@ -314,7 +291,7 @@ def patch_crewai(client) -> None:
                     error_msg = None
                     
                     try:
-                        output = await original_arun(self, *args, **kwargs)
+                        output = original_run(self, *args, **kwargs)
                         return output
                     except Exception as e:
                         status = "failed"
@@ -324,10 +301,228 @@ def patch_crewai(client) -> None:
                         _report_execution_result(
                             client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
                         )
-                BaseTool.arun = wrapper_arun
-            
-            BaseTool.run = wrapper_run
+
+                original_arun = getattr(BaseTool, "arun", None)
+                if original_arun and not getattr(original_arun, "__wrapped__", None):
+                    @functools.wraps(original_arun)
+                    async def wrapper_arun(self, *args, **kwargs):
+                        if len(args) == 1:
+                            tool_input = args[0]
+                        elif len(args) > 1:
+                            tool_input = list(args)
+                        else:
+                            tool_input = kwargs.get("tool_input") or kwargs
+
+                        tool_name = getattr(self, "name", "unknown_tool")
+                        tool_desc = getattr(self, "description", "")
+                        
+                        caller_info, context, start_time, start_iso = _prepare_execution_context(
+                            client, tool_name, tool_desc, tool_input
+                        )
+                        
+                        decision, reason, risk_category, risk_score, was_authorized = _evaluate_risk_and_permission(
+                            client, tool_name, tool_desc, tool_input, context, caller_info, start_time, start_iso
+                        )
+                        
+                        status = "success"
+                        output = None
+                        error_msg = None
+                        
+                        try:
+                            output = await original_arun(self, *args, **kwargs)
+                            return output
+                        except Exception as e:
+                            status = "failed"
+                            error_msg = f"{type(e).__name__}: {str(e)}"
+                            raise
+                        finally:
+                            _report_execution_result(
+                                client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
+                            )
+                    BaseTool.arun = wrapper_arun
+                
+                BaseTool.run = wrapper_run
+                patched_any = True
+        except ImportError:
+            pass
+
+        # 2. Patch Tool from crewai.tools.base_tool
+        try:
+            from crewai.tools.base_tool import Tool
+            if hasattr(Tool, "run") and not getattr(Tool.run, "__wrapped__", None):
+                original_run = Tool.run
+                @functools.wraps(original_run)
+                def wrapper_run(self, *args, **kwargs):
+                    if len(args) == 1:
+                        tool_input = args[0]
+                    elif len(args) > 1:
+                        tool_input = list(args)
+                    else:
+                        tool_input = kwargs.get("tool_input") or kwargs
+
+                    tool_name = getattr(self, "name", "unknown_tool")
+                    tool_desc = getattr(self, "description", "")
+                    
+                    caller_info, context, start_time, start_iso = _prepare_execution_context(
+                        client, tool_name, tool_desc, tool_input
+                    )
+                    
+                    decision, reason, risk_category, risk_score, was_authorized = _evaluate_risk_and_permission(
+                        client, tool_name, tool_desc, tool_input, context, caller_info, start_time, start_iso
+                    )
+                    
+                    status = "success"
+                    output = None
+                    error_msg = None
+                    
+                    try:
+                        output = original_run(self, *args, **kwargs)
+                        return output
+                    except Exception as e:
+                        status = "failed"
+                        error_msg = f"{type(e).__name__}: {str(e)}"
+                        raise
+                    finally:
+                        _report_execution_result(
+                            client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
+                        )
+
+                original_arun = getattr(Tool, "arun", None)
+                if original_arun and not getattr(original_arun, "__wrapped__", None):
+                    @functools.wraps(original_arun)
+                    async def wrapper_arun(self, *args, **kwargs):
+                        if len(args) == 1:
+                            tool_input = args[0]
+                        elif len(args) > 1:
+                            tool_input = list(args)
+                        else:
+                            tool_input = kwargs.get("tool_input") or kwargs
+
+                        tool_name = getattr(self, "name", "unknown_tool")
+                        tool_desc = getattr(self, "description", "")
+                        
+                        caller_info, context, start_time, start_iso = _prepare_execution_context(
+                            client, tool_name, tool_desc, tool_input
+                        )
+                        
+                        decision, reason, risk_category, risk_score, was_authorized = _evaluate_risk_and_permission(
+                            client, tool_name, tool_desc, tool_input, context, caller_info, start_time, start_iso
+                        )
+                        
+                        status = "success"
+                        output = None
+                        error_msg = None
+                        
+                        try:
+                            output = await original_arun(self, *args, **kwargs)
+                            return output
+                        except Exception as e:
+                            status = "failed"
+                            error_msg = f"{type(e).__name__}: {str(e)}"
+                            raise
+                        finally:
+                            _report_execution_result(
+                                client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
+                            )
+                    Tool.arun = wrapper_arun
+                
+                Tool.run = wrapper_run
+                patched_any = True
+        except ImportError:
+            pass
+
+        # 3. Patch CrewStructuredTool from crewai.tools.structured_tool
+        try:
+            from crewai.tools.structured_tool import CrewStructuredTool
+            if hasattr(CrewStructuredTool, "invoke") and not getattr(CrewStructuredTool.invoke, "__wrapped__", None):
+                original_invoke = CrewStructuredTool.invoke
+                @functools.wraps(original_invoke)
+                def wrapper_invoke(self, *args, **kwargs):
+                    tool_input = args[0] if len(args) > 0 else kwargs.get("input", {})
+                    # If input is a JSON string, try to parse it
+                    if isinstance(tool_input, str):
+                        try:
+                            import json
+                            tool_input = json.loads(tool_input)
+                        except Exception:
+                            pass
+                    
+                    tool_name = getattr(self, "name", "unknown_tool")
+                    tool_desc = getattr(self, "description", "")
+                    
+                    caller_info, context, start_time, start_iso = _prepare_execution_context(
+                        client, tool_name, tool_desc, tool_input
+                    )
+                    
+                    decision, reason, risk_category, risk_score, was_authorized = _evaluate_risk_and_permission(
+                        client, tool_name, tool_desc, tool_input, context, caller_info, start_time, start_iso
+                    )
+                    
+                    status = "success"
+                    output = None
+                    error_msg = None
+                    
+                    try:
+                        output = original_invoke(self, *args, **kwargs)
+                        return output
+                    except Exception as e:
+                        status = "failed"
+                        error_msg = f"{type(e).__name__}: {str(e)}"
+                        raise
+                    finally:
+                        _report_execution_result(
+                            client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
+                        )
+
+                original_ainvoke = getattr(CrewStructuredTool, "ainvoke", None)
+                if original_ainvoke and not getattr(original_ainvoke, "__wrapped__", None):
+                    @functools.wraps(original_ainvoke)
+                    async def wrapper_ainvoke(self, *args, **kwargs):
+                        tool_input = args[0] if len(args) > 0 else kwargs.get("input", {})
+                        if isinstance(tool_input, str):
+                            try:
+                                import json
+                                tool_input = json.loads(tool_input)
+                            except Exception:
+                                pass
+                        
+                        tool_name = getattr(self, "name", "unknown_tool")
+                        tool_desc = getattr(self, "description", "")
+                        
+                        caller_info, context, start_time, start_iso = _prepare_execution_context(
+                            client, tool_name, tool_desc, tool_input
+                        )
+                        
+                        decision, reason, risk_category, risk_score, was_authorized = _evaluate_risk_and_permission(
+                            client, tool_name, tool_desc, tool_input, context, caller_info, start_time, start_iso
+                        )
+                        
+                        status = "success"
+                        output = None
+                        error_msg = None
+                        
+                        try:
+                            output = await original_ainvoke(self, *args, **kwargs)
+                            return output
+                        except Exception as e:
+                            status = "failed"
+                            error_msg = f"{type(e).__name__}: {str(e)}"
+                            raise
+                        finally:
+                            _report_execution_result(
+                                client, tool_name, tool_desc, tool_input, context, output, error_msg, status, risk_score, risk_category, was_authorized, start_time, start_iso
+                            )
+                    CrewStructuredTool.ainvoke = wrapper_ainvoke
+                
+                CrewStructuredTool.invoke = wrapper_invoke
+                patched_any = True
+        except ImportError:
+            pass
+
+        if patched_any:
             _patched["crewai"] = True
             logger.info("Successfully instrumented CrewAI tools")
-    except ImportError:
-        pass
+
+    except Exception as e:
+        logger.error(f"Error instrumenting CrewAI tools: {e}")
+

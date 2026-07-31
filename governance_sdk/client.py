@@ -91,7 +91,8 @@ class GovernanceClient:
             "tool_name": tool_name,
             "tool_description": tool_description,
             "arguments": safe_serialize(arguments),
-            "context": safe_serialize(context)
+            "context": safe_serialize(context),
+            "risk_threshold": self.config.risk_threshold
         }
         
         data = json.dumps(payload).encode("utf-8")
@@ -160,7 +161,7 @@ class GovernanceClient:
         # Fallback handling
         fallback_decision = self.config.fallback_policy
         if fallback_decision == "policy":
-            return self._evaluate_local_fallback_policy(tool_name, tool_description, arguments)
+            return self._evaluate_local_fallback_policy(tool_name, tool_description, arguments, context)
         elif fallback_decision == "block":
             return {
                 "decision": "needs_full_review",
@@ -176,61 +177,28 @@ class GovernanceClient:
                 "reason": "Server unreachable. Applied fallback open policy: allow."
             }
 
-    def _evaluate_local_fallback_policy(self, tool_name: str, tool_description: str, arguments: Any) -> Dict[str, Any]:
+    def _evaluate_local_fallback_policy(
+        self,
+        tool_name: str,
+        tool_description: str,
+        arguments: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Evaluates a local rules-based safety policy when the Governance Server is unreachable.
+        Evaluates a local rules-based safety policy using the LocalRiskEngine when the Governance Server is unreachable.
         """
-        tool_lower = tool_name.lower()
-        desc_lower = (tool_description or "").lower()
-        args_str = str(arguments).lower()
-        
-        # 1. Check for destructive commands/shell execution
-        destructive_commands = ["rm -rf", "rm -f", "mkfs", "dd if=", "reboot", "shutdown", "chmod 777", "chown"]
-        shell_keywords = ["shell", "terminal", "exec", "command", "system", "run"]
-        
-        is_shell_tool = any(kw in tool_lower for kw in shell_keywords)
-        has_destructive = any(cmd in args_str for cmd in destructive_commands)
-        
-        if is_shell_tool and has_destructive:
+        try:
+            from governance_sdk.fallback import LocalRiskEngine
+            engine = LocalRiskEngine(risk_threshold=self.config.risk_threshold)
+            return engine.calculate_risk(tool_name, tool_description, arguments, context or {})
+        except Exception as e:
+            logger.error(f"Failed to run local fallback risk engine: {e}")
             return {
-                "decision": "needs_full_review",
-                "risk_score": 0.95,
-                "risk_category": "high_risk",
-                "reason": "Server unreachable. Local policy block: Destructive command detected in shell execution."
-            }
-            
-        # 2. Check for credential leaks / sensitive reads
-        sensitive_patterns = ["akiat", "akia", "slack_token", "stripe", "github_token", "password", "private_key", ".pem", "id_rsa"]
-        has_sensitive = any(pat in args_str for pat in sensitive_patterns)
-        has_sensitive_files = any(f in args_str for f in ["/etc/passwd", "/etc/shadow", ".ssh/"])
-        
-        if has_sensitive or has_sensitive_files:
-            return {
-                "decision": "preview_and_confirmation",
-                "risk_score": 0.85,
-                "risk_category": "high_risk",
-                "reason": "Server unreachable. Local policy warning: Sensitive data or credential leak risk detected."
-            }
-            
-        # 3. Check for general database or filesystem deletion
-        delete_keywords = ["delete", "remove", "destroy", "rm", "drop", "truncate"]
-        is_delete_op = any(kw in tool_lower for kw in delete_keywords) or any(kw in desc_lower for kw in delete_keywords)
-        
-        if is_delete_op:
-            return {
-                "decision": "preview_and_confirmation",
-                "risk_score": 0.70,
+                "decision": "needs_full_review" if self.config.fallback_policy == "block" else "allow",
+                "risk_score": 0.5,
                 "risk_category": "medium_risk",
-                "reason": "Server unreachable. Local policy warning: Destructive delete/remove operation detected."
+                "reason": f"Local fallback engine exception: {e}"
             }
-            
-        # 4. Otherwise allow
-        return {
-            "decision": "allow",
-            "risk_score": 0.15,
-            "risk_category": "safe",
-            "reason": "Server unreachable. Local policy allow: No high-risk patterns matched."
-        }
 
 
     def _worker_loop(self) -> None:

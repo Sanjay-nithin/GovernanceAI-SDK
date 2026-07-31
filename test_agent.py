@@ -50,6 +50,10 @@ async def _run_async_tests():
     assert "Async processed" in res
 
 def main():
+    import builtins
+    builtins.input = lambda prompt="": "y"
+
+    
     # Find free port and launch Governance Server subprocess
     server_port = find_free_port()
     server_script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Governance/backend/server.py"))
@@ -59,6 +63,22 @@ def main():
     if not os.path.exists(python_executable):
         python_executable = sys.executable
         
+    # Ensure test key exists in ClickHouse api_keys table by running a quick insertion script
+    # using the backend's environment.
+    print("Preparing test database (inserting test API key)...")
+    backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../Governance/backend"))
+    seed_script = f"""
+import sys
+sys.path.insert(0, '{backend_path}')
+import clickhouse_connect, datetime
+from config import CLICKHOUSE_DB_HOST, CLICKHOUSE_DB_USER, CLICKHOUSE_DB_PASSWORD, CLICKHOUSE_DB_PORT, CLICKHOUSE_DB_SECURE, CLICKHOUSE_DB_DATABASE
+client = clickhouse_connect.get_client(host=CLICKHOUSE_DB_HOST, username=CLICKHOUSE_DB_USER, password=CLICKHOUSE_DB_PASSWORD, port=CLICKHOUSE_DB_PORT, secure=CLICKHOUSE_DB_SECURE, database=CLICKHOUSE_DB_DATABASE)
+exists = client.query("SELECT count(*) FROM api_keys WHERE api_key = '{test_key}'").result_rows[0][0]
+if not exists:
+    client.insert('api_keys', [('{test_key}', 'Test Runner', datetime.datetime.now(datetime.timezone.utc))], column_names=['api_key', 'owner', 'created_at'])
+"""
+    subprocess.run([python_executable, "-c", seed_script], cwd=backend_path, check=True)
+    
     print(f"Launching Governance Server Subprocess from: {server_script_path} using {python_executable}")
     server_process = subprocess.Popen(
         [python_executable, server_script_path, str(server_port)]
@@ -66,7 +86,7 @@ def main():
     # Wait for the server to spin up and bind to the port (longer delay for ClickHouse Cloud handshakes)
     time.sleep(8.0)
     
-    # Initialize the SDK pointing to our local mock server
+    # Initialize the SDK pointing to our local server
     governance_sdk.init(
         "mock_key",
         server_url=f"http://127.0.0.1:{server_port}/api/v1/tool-calls",

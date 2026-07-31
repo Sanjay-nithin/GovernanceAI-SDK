@@ -4,9 +4,9 @@ from typing import Optional, Dict, Any
 class SDKConfig:
     def __init__(
         self,
+        api_key: str,
         server_url: Optional[str] = None,
         risk_check_url: Optional[str] = None,
-        api_key: Optional[str] = None,
         project_name: Optional[str] = None,
         enabled: Optional[bool] = None,
         batch_size: Optional[int] = None,
@@ -16,11 +16,13 @@ class SDKConfig:
         risk_threshold: Optional[float] = None,
         extra_metadata: Optional[Dict[str, Any]] = None
     ):
+        if not api_key:
+            raise ValueError("api_key is required to initialize the Governance SDK")
         # Base and risk check URLs
+        self.api_key = api_key
         self.server_url = server_url or os.environ.get("GOVERNANCE_SERVER_URL", "http://127.0.0.1:8000/api/v1/tool-calls")
         self.risk_check_url = risk_check_url or os.environ.get("GOVERNANCE_RISK_CHECK_URL") or self.server_url.replace("tool-calls", "risk-checks")
         
-        self.api_key = api_key or os.environ.get("GOVERNANCE_API_KEY")
         self.project_name = project_name or os.environ.get("GOVERNANCE_PROJECT_NAME", "default-project")
         
         env_enabled = os.environ.get("GOVERNANCE_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -39,7 +41,7 @@ class SDKConfig:
             
         # Default risk threshold above which we block execution
         env_threshold = os.environ.get("GOVERNANCE_RISK_THRESHOLD")
-        self.risk_threshold = risk_threshold if risk_threshold is not None else (float(env_threshold) if env_threshold else 0.70)
+        self.risk_threshold = risk_threshold if risk_threshold is not None else (float(env_threshold) if env_threshold else 0.80)
         
         self.extra_metadata = extra_metadata or {}
 
